@@ -1168,6 +1168,10 @@ class TaskThread(QtCore.QThread):
         #print "TaskThread:run() finished"
                     
     def runOnce(self, params=None):
+        import cProfile
+        p = cProfile.Profile()
+        p.enable()
+
         # good time to collect garbage
         gc.collect()
         
@@ -1302,6 +1306,9 @@ class TaskThread(QtCore.QThread):
         QtCore.QThread.yieldCurrentThread()
         prof.mark('yield')
         prof.finish()
+
+        p.disable()
+        p.dump_stats('prof_stats')
         
     def checkStop(self):
         with self.lock:
