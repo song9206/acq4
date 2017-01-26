@@ -51,23 +51,36 @@ class LuigsNeumann(SerialDevice):
     """
     openDevices = {}
 
-    def __init__(self, port, n_devices, baudrate=115200):
+    def __init__(self, port, baudrate=115200):
         self.lock = RLock()
 
         self.port = self.normalizePortName(port)
-        self.n_devices = n_devices
-        self.n_axes = n_devices * 3
+        self.n_devices = 1
         if self.port in self.openDevices:
             raise RuntimeError("Port %s is already in use by %s" % (port, self.openDevices[self.port]))
 
         SerialDevice.__init__(self, port=self.port, baudrate=baudrate)
 
-        LuigsNeumann.openDevices[self.port] = self
+    n_axes = property(lambda self: self.n_devices * 3)
+
+    @classmethod
+    def getDriver(cls, port, device_number):
+        port = cls.normalizePortName(port)
+        if port in LuigsNeumann.openDevices:
+            driver = LuigsNeumann.openDevices[port]
+        else:
+            driver = LuigsNeumann(port)
+            LuigsNeumann.openDevices[port] = driver
+
+        if device_number > driver.n_devices:
+            driver.n_devices = device_number
 
         # Make sure that all axis are switched on (and exist...)
-        for axis in range(1, self.n_axes + 1):
-            if not self.getPower(axis):
-                self.setPower(axis)
+        for axis in range((device_number-1)*3 + 1, device_number*3 + 1):
+            if not driver.getPower(axis):
+                driver.setPower(axis)
+
+        return driver
 
     def close(self):
         port = self.port
@@ -125,33 +138,37 @@ class LuigsNeumann(SerialDevice):
 
     def setPower(self, axis, on=True):
         """Switch a given axis an or off"""
-        self.checkAxis(axis)
-        ID = '0035' if on else '0034'
-        try:
-            ret = self.send(ID, [axis], 1)
-        except TimeoutError as ex:
-            on_off = 'on' if on else 'off'
-            raise RuntimeError('Could not switch axis %d %s, no response.' % (axis, on_off))
+        with self.lock:
+            self.checkAxis(axis)
+            ID = '0035' if on else '0034'
+            try:
+                ret = self.send(ID, [axis], 1)
+            except TimeoutError as ex:
+                on_off = 'on' if on else 'off'
+                raise RuntimeError('Could not switch axis %d %s, no response.' % (axis, on_off))
 
     def getPower(self, axis):
         self.checkAxis(axis)
-        try:
-            ret = struct.unpack('b', self.send('011E', [axis], 1))[0]
-            return ret == 1
-        except TimeoutError as ex:
-            raise RuntimeError('Could not get status for axis %d, no response.' % axis)
+        with self.lock:
+            try:
+                ret = struct.unpack('b', self.send('011E', [axis], 1))[0]
+                return ret == 1
+            except TimeoutError as ex:
+                raise RuntimeError('Could not get status for axis %d, no response.' % axis)
 
     def getSinglePos(self, device, axis):
         """Get current manipulator position reported by controller in micrometers.
         """
-        axis = (device - 1)*3 + axis
-        return struct.unpack('f', self.send('0101', [axis], 4))
+        axis = (device - 1) * 3 + axis
+        with self.lock:
+            return struct.unpack('f', self.send('0101', [axis], 4))
 
     def getPos(self, device):
         axes = list(range((device-1)*3 + 1, device*3 + 1))
-        ret = struct.unpack('4b4f', self.send('A101', [0xA0] + axes + [0], 20))
-        assert all(r == a for r, a in zip(ret[:3], axes))
-        return ret[4:7]
+        with self.lock:
+            ret = struct.unpack('4b4f', self.send('A101', [0xA0] + axes + [0], 20))
+            assert all(r == a for r, a in zip(ret[:3], axes))
+            return ret[4:7]
 
     def moveTo(self, device, pos, fast=True):
         """Set the position of the manipulator.
@@ -192,9 +209,10 @@ class LuigsNeumann(SerialDevice):
     def zeroPosition(self):
         """Reset the stage coordinates to (0, 0, 0) without moving the stage.
         """
-        ID = 'A0F0'
-        address = self.groupAddress()
-        self.send(ID, address, 0)
+        with self.lock:
+            ID = 'A0F0'
+            address = self.groupAddress()
+            self.send(ID, address, 0)
 
     def stop(self, device):
         """Stop moving the manipulator.
@@ -203,7 +221,7 @@ class LuigsNeumann(SerialDevice):
             ID = '00FF'
             axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
             for axis in axes:
-                self.send(ID, [axis], 1)
+                self.send(ID, [axis], 0)
 
     def isMoving(self, device):
         """Return True if the manipulator is moving.
