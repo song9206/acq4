@@ -26,7 +26,7 @@ class LuigsNeumann(Stage):
         name = config.pop('name', name)
         self.device_number = config.pop('device_number')
         self.dev = LuigsNeumannDriver.getDriver(port=port,
-                                                device_number=self.device_number)
+                                                device=self.device_number)
 
         self._lastMove = None
         man.sigAbortAll.connect(self.abort)

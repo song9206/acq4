@@ -38,7 +38,6 @@ class LuigsNeumann(SerialDevice):
 
     This can be initialized either with the com port name or with the string description
     of the device.
-    Will attempt to connect at both 9600 and 38400 baud rates.
 
     Examples::
 
@@ -50,21 +49,101 @@ class LuigsNeumann(SerialDevice):
         dev2 = LuigsNeumann(name='SliceScope')
     """
     openDevices = {}
+    MOTOR = {0: 'P310',
+             1: 'P430',
+             2: 'P530',
+             3: 'PK223',
+             4: 'PK233',
+             5: 'ST2018',
+             6: 'PK244P',
+             7: 'PK244M'}
+    MOTOR_STEPS = {'P310': 60,
+                   'P430': 100,
+                   'P530': 100,
+                   'PK223': 200,
+                   'PK233': 200,
+                   'ST2018': 200,
+                   'PK244P': 200,
+                   'PK244M': 400}
+    PITCH = {0: 0.020*1e-3,
+             1: 0.050*1e-3,
+             2: 0.100*1e-3,
+             3: 0.125*1e-3,
+             4: 0.175*1e-3,
+             5: 0.350*1e-3,
+             6: 0.400*1e-3,
+             7: 0.500*1e-3,
+             8: 1.000*1e-3,
+             9: 2.000*1e-3,
+             10: 2.97*1e-3  #TODO: Says 0.297*1e-3 in the docs...
+             }
+    SLOW_VELOCITY = {0: 0.000017,
+                     1: 0.000040,
+                     2: 0.000141,
+                     3: 0.000260,
+                     4: 0.001280,
+                     5: 0.02630,
+                     6: 0.05070,
+                     7: 0.010200,
+                     8: 0.025100,
+                     9: 0.060100,
+                     10: 0.173000,
+                     11: 0.332000,
+                     12: 0.498000,
+                     13: 0.664000, #TODO: Says 0.066400 in the docs...
+                     14: 0.996000,
+                     15: 1.328000}
+    FAST_VELOCITY = {0: 0.66,
+                     1: 1.73,
+                     2: 2.63,
+                     3: 3.79,
+                     4: 4.67,
+                     5: 5.68,
+                     6: 6.33,
+                     7: 7.81,
+                     8: 8.47,
+                     9: 9.52,
+                     10: 10.42,
+                     11: 11.36,
+                     12: 12.32,
+                     13: 13.23,
+                     14: 14.29,
+                     15: 15.15}
 
     def __init__(self, port, baudrate=115200):
         self.lock = RLock()
 
         self.port = self.normalizePortName(port)
-        self.n_devices = 1
+        self.n_devices = 0
         if self.port in self.openDevices:
             raise RuntimeError("Port %s is already in use by %s" % (port, self.openDevices[self.port]))
 
         SerialDevice.__init__(self, port=self.port, baudrate=baudrate)
+        # Make sure the read buffer does not contain anything anymore from a
+        # previous run
+        try:
+            self.read(1000, timeout=0.5)
+        except TimeoutError:
+            pass
+        self.motor = {}
+        self.pitch = {}
+
+        # Make sure to call addDevice for each device!
 
     n_axes = property(lambda self: self.n_devices * 3)
 
+    def addDevice(self, device):
+        self.n_devices = max([self.n_devices, device])
+        # Make sure that all axis are switched on (and exist...)
+        for axis in range((device-1)*3 + 1, device*3 + 1):
+            if not self.getPower(axis):
+                self.setPower(axis)
+        for axis in range(1, 2, 3):
+            self.motor[(device, axis)] = self.getMotor(device, axis)
+            self.pitch[(device, axis)] = self.getPitch(device, axis)
+
     @classmethod
-    def getDriver(cls, port, device_number):
+    def getDriver(cls, port, device):
         port = cls.normalizePortName(port)
         if port in LuigsNeumann.openDevices:
             driver = LuigsNeumann.openDevices[port]
@@ -72,13 +151,7 @@ class LuigsNeumann(SerialDevice):
             driver = LuigsNeumann(port)
             LuigsNeumann.openDevices[port] = driver
 
-        if device_number > driver.n_devices:
-            driver.n_devices = device_number
-
-        # Make sure that all axis are switched on (and exist...)
-        for axis in range((device_number-1)*3 + 1, device_number*3 + 1):
-            if not driver.getPower(axis):
-                driver.setPower(axis)
+        driver.addDevice(device)
 
         return driver
 
@@ -91,7 +164,7 @@ class LuigsNeumann(SerialDevice):
         '''
         Send a command to the controller
         '''
-        high, low = crc_16(data,len(data))
+        high, low = crc_16(data, len(data))
 
         # Create hex-string to be sent
         # <syn><ID><byte number>
@@ -103,7 +176,7 @@ class LuigsNeumann(SerialDevice):
             send += '%0.2X' % data[i]
 
         # <CRC>
-        send += '%0.2X%0.2X' % (high,low)
+        send += '%0.2X%0.2X' % (high, low)
 
         # Convert hex string to bytes
         sendbytes = binascii.unhexlify(send)
@@ -118,7 +191,10 @@ class LuigsNeumann(SerialDevice):
             answer = self.read(nbytes_answer+6, timeout=timeout)
 
             if answer[:len(expected)] != expected :
-                raise serial.SerialException # TODO: something a bit more explicit!
+                msg = "Expected answer '%s', got '%s' " \
+                      "instead" % (binascii.hexlify(expected),
+                                   binascii.hexlify(answer[:len(expected)]))
+                raise serial.SerialException(msg)
             # We should also check the CRC + the number of bytes
             # Do several reads; 3 bytes, n bytes, CRC
             return answer[4:4+nbytes_answer]
@@ -155,6 +231,37 @@ class LuigsNeumann(SerialDevice):
                 return ret == 1
             except TimeoutError as ex:
                 raise RuntimeError('Could not get status for axis %d, no response.' % axis)
+
+    def getMotor(self, device, axis):
+        """Get a string description of the motor controlling the given axis.
+        """
+        with self.lock:
+            axis = (device - 1) * 3 + axis
+            ret = struct.unpack('b', self.send('014B', [axis], 1))
+            return LuigsNeumann.MOTOR[ret]
+
+    def getPitch(self, device, axis):
+        """Get the pitch (in m) of the given axis"""
+        with self.lock:
+            axis = (device - 1) * 3 + axis
+            ret = struct.unpack('b', self.send('014D', [axis], 1))
+            return LuigsNeumann.PITCH[ret]
+
+    def getSpeed(self, device, axis, fast=True):
+        steps = LuigsNeumann.MOTOR_STEPS[self.motor[(device, axis)]]
+        if steps != 200:
+            raise NotImplementedError('Only motors with 200 steps supported.')
+        with self.lock:
+            if fast:
+                ID = '012F'
+            else:
+                ID = '0130'
+            ret = struct.unpack('b', self.send(ID, [axis], 1))
+            if fast:
+                return LuigsNeumann.FAST_VELOCITY[ret] * self.pitch[(device, axis)]
+            else:
+                return LuigsNeumann.SLOW_VELOCITY[ret] * self.pitch[(device, axis)]
+
 
     def getSinglePos(self, device, axis):
         """Get current manipulator position reported by controller in micrometers.
