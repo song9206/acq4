@@ -12,7 +12,8 @@ for dev in range(1, 4):
     print 'Device %d:'
     print '\tMotor: %s' % str([ps.motor[(dev, a)] for a in range(1, 4)])
     print '\tPitch: %s' % str([ps.pitch[(dev, a)] for a in range(1, 4)])
-    print '\tSpeed: %s' % str([ps.getSpeed(dev, a) for a in range(1, 4)])
+    print '\tSpeed (Fast) in mm/s: %s' % str([ps.getSpeed(dev, a, fast=True)*1000 for a in range(1, 4)])
+    print '\tSpeed (Slow) in mm/s: %s' % str([ps.getSpeed(dev, a, fast=False)*1000 for a in range(1, 4)])
     print '\tPosition: %s' % (dev, ps.getPos(device=dev))
 
 # Make sure this is safe before uncommenting!
