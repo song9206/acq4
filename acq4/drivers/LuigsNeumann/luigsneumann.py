@@ -122,7 +122,7 @@ class LuigsNeumann(SerialDevice):
         # Make sure the read buffer does not contain anything anymore from a
         # previous run
         try:
-            self.read(1000, timeout=0.5)
+            self.read(1000, timeout=1.0)
         except TimeoutError:
             pass
         self.motor = {}
@@ -138,7 +138,7 @@ class LuigsNeumann(SerialDevice):
         for axis in range((device-1)*3 + 1, device*3 + 1):
             if not self.getPower(axis):
                 self.setPower(axis)
-        for axis in range(1, 2, 3):
+        for axis in range(1, 4):
             self.motor[(device, axis)] = self.getMotor(device, axis)
             self.pitch[(device, axis)] = self.getPitch(device, axis)
 
@@ -237,14 +237,14 @@ class LuigsNeumann(SerialDevice):
         """
         with self.lock:
             axis = (device - 1) * 3 + axis
-            ret = struct.unpack('b', self.send('014B', [axis], 1))
+            ret = struct.unpack('b', self.send('014B', [axis], 1))[0]
             return LuigsNeumann.MOTOR[ret]
 
     def getPitch(self, device, axis):
         """Get the pitch (in m) of the given axis"""
         with self.lock:
             axis = (device - 1) * 3 + axis
-            ret = struct.unpack('b', self.send('014D', [axis], 1))
+            ret = struct.unpack('b', self.send('014D', [axis], 1))[0]
             return LuigsNeumann.PITCH[ret]
 
     def getSpeed(self, device, axis, fast=True):
@@ -256,7 +256,7 @@ class LuigsNeumann(SerialDevice):
                 ID = '012F'
             else:
                 ID = '0130'
-            ret = struct.unpack('b', self.send(ID, [axis], 1))
+            ret = struct.unpack('b', self.send(ID, [axis], 1))[0]
             if fast:
                 return LuigsNeumann.FAST_VELOCITY[ret] * self.pitch[(device, axis)]
             else:
@@ -297,7 +297,7 @@ class LuigsNeumann(SerialDevice):
             axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
             pos += [0.0]  # the command accepts 4 axes, we only set 3
             pos = [b for p in pos for b in bytearray(struct.pack('f', p))]
-            self.send(ID, [0xA0] + axes + [0] + pos , 0)
+            self.send(ID, [0xA0] + axes + [0] + pos, 0)
 
     def moveRelative(self, device, distance, fast=True):
         """Move the manipulator
