@@ -7,6 +7,7 @@ import ctypes
 import serial, struct, time, collections
 import numpy as np
 
+from acq4.Manager import LOG
 from acq4.util.Mutex import RecursiveMutex as RLock
 from ..SerialDevice import SerialDevice, TimeoutError, DataError
 
@@ -181,6 +182,10 @@ class LuigsNeumann(SerialDevice):
         # Convert hex string to bytes
         sendbytes = binascii.unhexlify(send)
         with self.lock:
+            if LOG is not None:
+                msg = ('Sending message "{bytes}" to Luigs&Neumann device at '
+                       'port {port}'.format(bytes=send, port=self.port))
+                LOG.logMsg(msg, importance=1)
             self.write(sendbytes)
 
             if nbytes_answer > 0:
@@ -189,7 +194,12 @@ class LuigsNeumann(SerialDevice):
                 expected = binascii.unhexlify('06' + ID)
 
                 answer = self.read(nbytes_answer+6, timeout=timeout)
-
+                if LOG is not None:
+                    msg = ('Received message "{bytes}" from Luigs&Neumann '
+                           'device at port '
+                           '{port}'.format(bytes=binascii.hexlify(answer),
+                                           port=self.port))
+                    LOG.logMsg(msg, importance=1)
                 if answer[:len(expected)] != expected :
                     msg = "Expected answer '%s', got '%s' " \
                           "instead" % (binascii.hexlify(expected),
