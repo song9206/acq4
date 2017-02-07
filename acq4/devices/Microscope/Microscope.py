@@ -499,7 +499,10 @@ class ScopeCameraModInterface(CameraModuleInterface):
         with pg.SignalBlock(self.movableFocusLine.sigPositionChangeFinished, self.focusDragged):
             self.movableFocusLine.setValue(focus + dif)
 
-        depth = fpos[2] - self.getDevice().getSurfaceDepth()
+        depth = fpos[2]
+        surface_depth = self.getDevice().getSurfaceDepth()
+        if surface_depth is not None:
+            depth -= surface_depth
         self.depthLabel.setValue(depth)
 
     def focusDragged(self):
