@@ -180,26 +180,26 @@ class LuigsNeumann(SerialDevice):
 
         # Convert hex string to bytes
         sendbytes = binascii.unhexlify(send)
+        with self.lock:
+            self.write(sendbytes)
 
-        self.write(sendbytes)
+            if nbytes_answer > 0:
+                # Expected response: <ACK><ID><byte number><data><CRC>
+                # We just check the first two bytes
+                expected = binascii.unhexlify('06' + ID)
 
-        if nbytes_answer > 0:
-            # Expected response: <ACK><ID><byte number><data><CRC>
-            # We just check the first two bytes
-            expected = binascii.unhexlify('06' + ID)
+                answer = self.read(nbytes_answer+6, timeout=timeout)
 
-            answer = self.read(nbytes_answer+6, timeout=timeout)
-
-            if answer[:len(expected)] != expected :
-                msg = "Expected answer '%s', got '%s' " \
-                      "instead" % (binascii.hexlify(expected),
-                                   binascii.hexlify(answer[:len(expected)]))
-                raise serial.SerialException(msg)
-            # We should also check the CRC + the number of bytes
-            # Do several reads; 3 bytes, n bytes, CRC
-            return answer[4:4+nbytes_answer]
-        else:
-            return None
+                if answer[:len(expected)] != expected :
+                    msg = "Expected answer '%s', got '%s' " \
+                          "instead" % (binascii.hexlify(expected),
+                                       binascii.hexlify(answer[:len(expected)]))
+                    raise serial.SerialException(msg)
+                # We should also check the CRC + the number of bytes
+                # Do several reads; 3 bytes, n bytes, CRC
+                return answer[4:4+nbytes_answer]
+            else:
+                return None
 
     def checkAxis(self, axis):
         assert axis <= self.n_axes, 'Only %d axes supported (illegal axis: %d)' % (self.n_axes, axis)
@@ -214,68 +214,61 @@ class LuigsNeumann(SerialDevice):
 
     def setPower(self, axis, on=True):
         """Switch a given axis an or off"""
-        with self.lock:
-            self.checkAxis(axis)
-            ID = '0035' if on else '0034'
-            try:
-                ret = self.send(ID, [axis], 1)
-            except TimeoutError as ex:
-                on_off = 'on' if on else 'off'
-                raise RuntimeError('Could not switch axis %d %s, no response.' % (axis, on_off))
+        self.checkAxis(axis)
+        ID = '0035' if on else '0034'
+        try:
+            ret = self.send(ID, [axis], 1)
+        except TimeoutError as ex:
+            on_off = 'on' if on else 'off'
+            raise RuntimeError('Could not switch axis %d %s, no response.' % (axis, on_off))
 
     def getPower(self, axis):
         self.checkAxis(axis)
-        with self.lock:
-            try:
-                ret = struct.unpack('b', self.send('011E', [axis], 1))[0]
-                return ret == 1
-            except TimeoutError as ex:
-                raise RuntimeError('Could not get status for axis %d, no response.' % axis)
+        try:
+            ret = struct.unpack('b', self.send('011E', [axis], 1))[0]
+            return ret == 1
+        except TimeoutError as ex:
+            raise RuntimeError('Could not get status for axis %d, no response.' % axis)
 
     def getMotor(self, device, axis):
         """Get a string description of the motor controlling the given axis.
         """
-        with self.lock:
-            axis = (device - 1) * 3 + axis
-            ret = struct.unpack('b', self.send('014B', [axis], 1))[0]
-            return LuigsNeumann.MOTOR[ret]
+        axis = (device - 1) * 3 + axis
+        ret = struct.unpack('b', self.send('014B', [axis], 1))[0]
+        return LuigsNeumann.MOTOR[ret]
 
     def getPitch(self, device, axis):
         """Get the pitch (in m) of the given axis"""
-        with self.lock:
-            axis = (device - 1) * 3 + axis
-            ret = struct.unpack('b', self.send('014D', [axis], 1))[0]
-            return LuigsNeumann.PITCH[ret]
+        axis = (device - 1) * 3 + axis
+        ret = struct.unpack('b', self.send('014D', [axis], 1))[0]
+        return LuigsNeumann.PITCH[ret]
 
     def getSpeed(self, device, axis, fast=True):
         steps = LuigsNeumann.MOTOR_STEPS[self.motor[(device, axis)]]
         if steps != 200:
             raise NotImplementedError('Only motors with 200 steps supported.')
-        with self.lock:
-            if fast:
-                ID = '012F'
-            else:
-                ID = '0130'
-            ret = struct.unpack('b', self.send(ID, [axis], 1))[0]
-            if fast:
-                return LuigsNeumann.FAST_VELOCITY[ret] * self.pitch[(device, axis)]
-            else:
-                return LuigsNeumann.SLOW_VELOCITY[ret] * self.pitch[(device, axis)]
+        if fast:
+            ID = '012F'
+        else:
+            ID = '0130'
+        ret = struct.unpack('b', self.send(ID, [axis], 1))[0]
+        if fast:
+            return LuigsNeumann.FAST_VELOCITY[ret] * self.pitch[(device, axis)]
+        else:
+            return LuigsNeumann.SLOW_VELOCITY[ret] * self.pitch[(device, axis)]
 
 
     def getSinglePos(self, device, axis):
         """Get current manipulator position reported by controller in micrometers.
         """
         axis = (device - 1) * 3 + axis
-        with self.lock:
-            return struct.unpack('f', self.send('0101', [axis], 4))
+        return struct.unpack('f', self.send('0101', [axis], 4))
 
     def getPos(self, device):
         axes = list(range((device-1)*3 + 1, device*3 + 1))
-        with self.lock:
-            ret = struct.unpack('4b4f', self.send('A101', [0xA0] + axes + [0], 20))
-            assert all(r == a for r, a in zip(ret[:3], axes))
-            return ret[4:7]
+        ret = struct.unpack('4b4f', self.send('A101', [0xA0] + axes + [0], 20))
+        assert all(r == a for r, a in zip(ret[:3], axes))
+        return ret[4:7]
 
     def moveTo(self, device, pos, fast=True):
         """Set the position of the manipulator.
@@ -285,19 +278,18 @@ class LuigsNeumann(SerialDevice):
 
         """
         ID = 'A048' if fast else 'A049'
-        with self.lock:
-            currentPos = self.getPos(device=device)
-            # fill in Nones with current position
-            pos = list(pos)
-            for i in range(3):
-                if pos[i] is None:
-                    pos[i] = currentPos[i]
+        currentPos = self.getPos(device=device)
+        # fill in Nones with current position
+        pos = list(pos)
+        for i in range(3):
+            if pos[i] is None:
+                pos[i] = currentPos[i]
 
-            # Send move command
-            axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
-            pos += [0.0]  # the command accepts 4 axes, we only set 3
-            pos = [b for p in pos for b in bytearray(struct.pack('f', p))]
-            self.send(ID, [0xA0] + axes + [0] + pos, 0)
+        # Send move command
+        axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
+        pos += [0.0]  # the command accepts 4 axes, we only set 3
+        pos = [b for p in pos for b in bytearray(struct.pack('f', p))]
+        self.send(ID, [0xA0] + axes + [0] + pos, 0)
 
     def moveRelative(self, device, distance, fast=True):
         """Move the manipulator
@@ -306,36 +298,32 @@ class LuigsNeumann(SerialDevice):
         (i.e. 0.0 for not moving) of the manipulator (in micrometers).
         """
         ID = 'A04A' if fast else 'A04B'
-        with self.lock:
-            # Send move command
-            axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
-            distance += [0.0]  # the command accepts 4 axes, we only set 3
-            distance = [b for d in distance for b in bytearray(struct.pack('f', d))]
-            self.send(ID, [0xA0] + axes + [0] + distance, 0)
+        # Send move command
+        axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
+        distance += [0.0]  # the command accepts 4 axes, we only set 3
+        distance = [b for d in distance for b in bytearray(struct.pack('f', d))]
+        self.send(ID, [0xA0] + axes + [0] + distance, 0)
 
     def zeroPosition(self):
         """Reset the stage coordinates to (0, 0, 0) without moving the stage.
         """
-        with self.lock:
-            ID = 'A0F0'
-            address = self.groupAddress()
-            self.send(ID, address, 0)
+        ID = 'A0F0'
+        address = self.groupAddress()
+        self.send(ID, address, 0)
 
     def stop(self, device):
         """Stop moving the manipulator.
         """
-        with self.lock:
-            ID = '00FF'
-            axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
-            for axis in axes:
-                self.send(ID, [axis], 0)
+        ID = '00FF'
+        axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
+        for axis in axes:
+            self.send(ID, [axis], 0)
 
     def isMoving(self, device):
         """Return True if the manipulator is moving.
         """
-        with self.lock:
-            axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
-            data = [0xA0] + axes + [0]
-            ret = struct.unpack('20b', self.send('A120', data, 20))
-            moving = [ret[6], ret[10], ret[14]]
-            return any(moving)
+        axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
+        data = [0xA0] + axes + [0]
+        ret = struct.unpack('20b', self.send('A120', data, 20))
+        moving = [ret[6], ret[10], ret[14]]
+        return any(moving)
