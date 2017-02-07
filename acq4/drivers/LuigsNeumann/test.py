@@ -17,10 +17,10 @@ for dev in range(1, 4):
     print '\tPosition: %s' % str(ps.getPos(device=dev))
 
 # Make sure this is safe before uncommenting!
-ps.moveTo(device=1, pos=[0, None, None], fast=True)
-time.sleep(0.25)  # wait a moment so that the movement starts
-while ps.isMoving(device=1):
-    print ps.getPos(device=1)
-    time.sleep(0.5)
-
-print 'final position', ps.getPos(device=1)
+# ps.moveTo(device=1, pos=[0, None, None], fast=True)
+# time.sleep(0.25)  # wait a moment so that the movement starts
+# while ps.isMoving(device=1):
+#     print ps.getPos(device=1)
+#     time.sleep(0.5)
+#
+# print 'final position', ps.getPos(device=1)
