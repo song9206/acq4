@@ -123,7 +123,8 @@ class LuigsNeumann(SerialDevice):
         # Make sure the read buffer does not contain anything anymore from a
         # previous run
         try:
-            self.read(1000, timeout=1.0)
+            with self.lock:
+                self.read(1000, timeout=1.0)
         except TimeoutError:
             pass
         self.motor = {}
@@ -188,7 +189,7 @@ class LuigsNeumann(SerialDevice):
                 LOG.logMsg(msg, importance=1)
             self.write(sendbytes)
 
-            if nbytes_answer > 0:
+            if nbytes_answer >= 0:
                 # Expected response: <ACK><ID><byte number><data><CRC>
                 # We just check the first two bytes
                 expected = binascii.unhexlify('06' + ID)
@@ -227,7 +228,7 @@ class LuigsNeumann(SerialDevice):
         self.checkAxis(axis)
         ID = '0035' if on else '0034'
         try:
-            ret = self.send(ID, [axis], 1)
+            self.send(ID, [axis], 0)
         except TimeoutError as ex:
             on_off = 'on' if on else 'off'
             raise RuntimeError('Could not switch axis %d %s, no response.' % (axis, on_off))
@@ -299,7 +300,7 @@ class LuigsNeumann(SerialDevice):
         axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
         pos += [0.0]  # the command accepts 4 axes, we only set 3
         pos = [b for p in pos for b in bytearray(struct.pack('f', p))]
-        self.send(ID, [0xA0] + axes + [0] + pos, 0)
+        self.send(ID, [0xA0] + axes + [0] + pos, -1)
 
     def moveRelative(self, device, distance, fast=True):
         """Move the manipulator
@@ -312,14 +313,14 @@ class LuigsNeumann(SerialDevice):
         axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
         distance += [0.0]  # the command accepts 4 axes, we only set 3
         distance = [b for d in distance for b in bytearray(struct.pack('f', d))]
-        self.send(ID, [0xA0] + axes + [0] + distance, 0)
+        self.send(ID, [0xA0] + axes + [0] + distance, -1)
 
     def zeroPosition(self):
         """Reset the stage coordinates to (0, 0, 0) without moving the stage.
         """
         ID = 'A0F0'
         address = self.groupAddress()
-        self.send(ID, address, 0)
+        self.send(ID, address, -1)
 
     def stop(self, device):
         """Stop moving the manipulator.

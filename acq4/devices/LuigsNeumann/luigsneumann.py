@@ -24,6 +24,7 @@ class LuigsNeumann(Stage):
     def __init__(self, man, config, name):
         port = config.pop('port')
         name = config.pop('name', name)
+        self.scale = config.pop('scale', (1e-6, 1e-6, 1e-6))
         self.device_number = config.pop('device_number')
         self.dev = LuigsNeumannDriver.getDriver(port=port,
                                                 device=self.device_number)
@@ -75,7 +76,7 @@ class LuigsNeumann(Stage):
         # Called by superclass when user requests position refresh
         with self.lock:
             pos = self.dev.getPos(device=self.device_number)
-            pos = [pos[i] * 1e-6 for i in (0, 1, 2)]
+            pos = [pos[i] * self.scale[i] for i in (0, 1, 2)]
             if pos != self._lastPos:
                 self._lastPos = pos
                 emit = True
