@@ -161,7 +161,7 @@ class LuigsNeumann(SerialDevice):
         SerialDevice.close(self)
         del LuigsNeumann.openDevices[port]
 
-    def send(self, ID, data, nbytes_answer, timeout=1.0):
+    def send(self, ID, data, nbytes_answer, timeout=5.0):
         '''
         Send a command to the controller
         '''
@@ -208,6 +208,7 @@ class LuigsNeumann(SerialDevice):
                 # Do several reads; 3 bytes, n bytes, CRC
                 return answer[4:4+nbytes_answer]
             else:
+                time.sleep(0.05)
                 return None
 
     def checkAxis(self, axis):
