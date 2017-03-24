@@ -61,6 +61,7 @@ class LuigsNeumann(Stage):
         with self.lock:
             self.dev.stop(device=self.device_number)
             if self._lastMove is not None:
+                time.sleep(0.2)  # stopping might take a moment
                 self._lastMove._stopped()
             self._lastMove = None
 
@@ -69,6 +70,7 @@ class LuigsNeumann(Stage):
         """
         self.dev.stop(device=self.device_number)
         if self._lastMove is not None:
+            time.sleep(0.2)  # stopping might take a moment
             self._lastMove._stopped()
             self._lastMove = None
 
@@ -167,7 +169,7 @@ class LuigsNeumannMoveFuture(MoveFuture):
         self._interrupted = False
         self._errorMSg = None
         self._finished = False
-        pos = np.array(pos) / 1e-6
+        pos = [pos[i] / dev.scale[i] for i in (0, 1, 2)]
         with self.dev.dev.lock:
             self.dev.dev.moveTo(device=dev.device_number, pos=pos)
             time.sleep(0.25)

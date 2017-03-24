@@ -113,7 +113,6 @@ class LuigsNeumann(SerialDevice):
 
     def __init__(self, port, baudrate=115200):
         self.lock = RLock()
-
         self.port = self.normalizePortName(port)
         self.n_devices = 0
         if self.port in self.openDevices:
@@ -179,7 +178,6 @@ class LuigsNeumann(SerialDevice):
 
         # <CRC>
         send += '%0.2X%0.2X' % (high, low)
-
         # Convert hex string to bytes
         sendbytes = binascii.unhexlify(send)
         with self.lock:
@@ -221,7 +219,7 @@ class LuigsNeumann(SerialDevice):
         all_axes = 2**self.n_axes - 1
         # The group address is fixed at 9 bites
         address = binascii.unhexlify('%.18x' % all_axes)
-        assert len(address) == 9
+        return struct.unpack('9B', address)
 
     def setPower(self, axis, on=True):
         """Switch a given axis an or off"""
@@ -245,13 +243,13 @@ class LuigsNeumann(SerialDevice):
         """Get a string description of the motor controlling the given axis.
         """
         axis = (device - 1) * 3 + axis
-        ret = struct.unpack('b', self.send('014B', [axis], 1))[0]
+        ret = struct.unpack('B', self.send('014B', [axis], 1))[0]
         return LuigsNeumann.MOTOR[ret]
 
     def getPitch(self, device, axis):
         """Get the pitch (in m) of the given axis"""
         axis = (device - 1) * 3 + axis
-        ret = struct.unpack('b', self.send('014D', [axis], 1))[0]
+        ret = struct.unpack('B', self.send('014D', [axis], 1))[0]
         return LuigsNeumann.PITCH[ret]
 
     def getSpeed(self, device, axis, fast=True):
@@ -262,7 +260,7 @@ class LuigsNeumann(SerialDevice):
             ID = '012F'
         else:
             ID = '0130'
-        ret = struct.unpack('b', self.send(ID, [axis], 1))[0]
+        ret = struct.unpack('B', self.send(ID, [axis], 1))[0]
         if fast:
             return LuigsNeumann.FAST_VELOCITY[ret] * self.pitch[(device, axis)]
         else:
@@ -325,16 +323,15 @@ class LuigsNeumann(SerialDevice):
     def stop(self, device):
         """Stop moving the manipulator.
         """
-        ID = '00FF'
-        axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
-        for axis in axes:
-            self.send(ID, [axis], 0)
+        ID = 'A0FF'
+        address = self.groupAddress()
+        self.send(ID, address, -1)
 
     def isMoving(self, device):
         """Return True if the manipulator is moving.
         """
         axes = list(range((device - 1) * 3 + 1, device * 3 + 1))
         data = [0xA0] + axes + [0]
-        ret = struct.unpack('20b', self.send('A120', data, 20))
+        ret = struct.unpack('20B', self.send('A120', data, 20))
         moving = [ret[6], ret[10], ret[14]]
         return any(moving)
